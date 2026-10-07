@@ -342,7 +342,7 @@ function popUsed(s) { return s.units.length + s.guards.length + s.training.lengt
 function canAfford(s, cost) { for (const k in cost) if ((s.res[k] || 0) < cost[k]) return false; return true; }
 function pay(s, cost) { for (const k in cost) s.res[k] -= cost[k]; }
 function refund(s, cost) { for (const k in cost) s.res[k] += cost[k]; }
-function emit(s, msg, kind) { s.events.push({ t: s.t, msg, kind: kind || 'info' }); if (s.events.length > 60) s.events.shift(); }
+function emit(s, msg, kind, built) { s.events.push({ t: s.t, msg, kind: kind || 'info', built: built || null }); if (s.events.length > 60) s.events.shift(); }
 
 function spawnVillager(s, job) {
   const tc = s.buildings.find(b => b.type === 'tc');
@@ -396,7 +396,7 @@ function updateVillager(s, u, dt) {
     u.anim += dt * 10;
     if (b.progress >= 1) {
       b.progress = 1; b.done = true; b.builder = null; u.state = 'idle'; u.target = null; s.stats.built++;
-      emit(s, BUILDINGS[b.type].name + ' terminado.', 'good');
+      emit(s, BUILDINGS[b.type].name + ' terminado.', 'good', b.type);
       if (b.type === 'wonder') { s.wonderStart = s.t; }
     }
     return;
@@ -1305,7 +1305,7 @@ function objective() {
   if (!S.buildings.some(b => b.type === 'wonder')) return '🎯 <b>Misión final:</b> construye la 🧬 Tabla Periódica Monumental (500 de cada recurso).';
   return '🎯 Termina la Maravilla.';
 }
-function flushEvents() { while (S.events.length) { const e = S.events.shift(); toast(e.msg, e.kind); if (e.kind === 'danger') sfx(/Se acercan|Saqueadores/.test(e.msg) ? 'alarm' : 'bad'); else if (e.kind === 'age') sfx('fanfare'); else if (e.kind === 'tech') sfx('tech'); else if (e.kind === 'good') sfx('built'); } }
+function flushEvents() { while (S.events.length) { const e = S.events.shift(); toast(e.msg, e.kind); if (e.kind === 'danger') sfx(/Se acercan|Saqueadores/.test(e.msg) ? 'alarm' : 'bad'); else if (e.kind === 'age') sfx('fanfare'); else if (e.kind === 'tech') sfx('tech'); else if (e.kind === 'good') sfx(e.built ? 'b_' + e.built : 'built'); } }
 
 // ------------------------------------------------------------ hojas (paneles)
 function openTab(t) { tab = tab === t ? null : t; document.querySelectorAll('#bottom button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab)); if (!tab) closeSheet(); else { $('sheet').style.display = 'block'; $('sheet').scrollTop = 0; refreshSheet(true); } }
@@ -1870,6 +1870,17 @@ const AUD = (function () {
     good: t => [523, 659, 784, 1047].forEach((f, i) => tone(f, t + i * 0.07, 0.22, 'triangle', 0.24)),
     bad: t => { tone(240, t, 0.3, 'sawtooth', 0.16, { to: 150, lp: 600 }); },
     built: t => [[587, 0], [880, 0.12], [1175, 0.24]].forEach(([f, d]) => { tone(f, t + d, 0.9, 'sine', 0.22); tone(f * 2.01, t + d, 0.5, 'sine', 0.07); }),
+    // ---- sonido de obra terminada, según el edificio (dos golpes/pasadas y un remate suave)
+    b_house: t => { [0, 0.22].forEach(d => { tone(190, t + d, 0.1, 'triangle', 0.3, { to: 120 }); noise(t + d, 0.06, 0.25, 900); }); tone(659, t + 0.5, 0.5, 'sine', 0.12); },
+    b_farm: t => { [0, 0.3].forEach(d => { noise(t + d, 0.22, 0.3, 500, null, 0.5); tone(110, t + d, 0.12, 'sine', 0.3, { to: 70 }); }); tone(784, t + 0.65, 0.4, 'sine', 0.1); },
+    b_lumber: t => { [0, 0.42].forEach(d => { for (let i = 0; i < 6; i++) { const f = 240 + (i % 2) * 40; tone(f, t + d + i * 0.06, 0.07, 'sawtooth', 0.12, { lp: 1800 }); noise(t + d + i * 0.06, 0.06, 0.2, 2600, null, 0.7); } }); tone(659, t + 0.9, 0.4, 'sine', 0.1); },
+    b_mining: t => { [0, 0.28].forEach(d => { noise(t + d, 0.05, 0.5, 3200, null, 1.2); tone(1400, t + d, 0.05, 'square', 0.1, { to: 700 }); tone(120, t + d, 0.14, 'sine', 0.3, { to: 70 }); noise(t + d + 0.07, 0.12, 0.12, 1800, null, 0.6); }); tone(587, t + 0.65, 0.4, 'sine', 0.1); },
+    b_lab: t => { for (let i = 0; i < 7; i++) tone(300 + Math.random() * 300, t + i * 0.07, 0.07, 'sine', 0.14, { to: 700 }); [1319, 1760, 2093].forEach((f, i) => tone(f, t + 0.55 + i * 0.1, 0.5, 'sine', 0.1)); },
+    b_library: t => { [0, 0.2, 0.4].forEach(d => noise(t + d, 0.16, 0.22, 3500, null, 0.4)); [523, 784].forEach((f, i) => tone(f, t + 0.7 + i * 0.15, 0.7, 'sine', 0.14)); },
+    b_barracks: t => { [0, 0.3, 0.6].forEach((d, k) => { const g = k === 2 ? 0.34 : 0.28; noise(t + d, 0.04, 0.5, 2800, null, 1); [[880, 1], [1480, 0.6], [2210, 0.35]].forEach(([f, m]) => tone(f * (k === 1 ? 0.94 : 1), t + d, 0.45, 'sine', g * 0.3 * m, { r: 0.4 })); tone(140, t + d, 0.1, 'sine', 0.3, { to: 80 }); }); },
+    b_tower: t => { [0, 0.3].forEach(d => { tone(95, t + d, 0.25, 'sine', 0.45, { to: 50 }); noise(t + d, 0.15, 0.3, 700, null, 0.5); }); horn(294, t + 0.65, 0.5, 0.2); },
+    b_market: t => { [0, 0.09, 0.18, 0.4, 0.5].forEach((d, i) => { tone(1568 + i * 90, t + d, 0.08, 'square', 0.07); tone(2093, t + d + 0.05, 0.3, 'sine', 0.08); }); },
+    b_wonder: t => { SFX.fanfare(t); },
     train: t => { horn(262, t, 0.25, 0.22); horn(392, t + 0.22, 0.35, 0.22); },
     coin: t => { tone(1318, t, 0.08, 'square', 0.1); tone(1760, t + 0.07, 0.35, 'square', 0.1); },
     gift: t => { for (let i = 0; i < 6; i++) tone(1046 * Math.pow(1.122, i), t + i * 0.05, 0.25, 'sine', 0.16); },
