@@ -1529,7 +1529,7 @@ function showHow() {
 
 // ------------------------------------------------------------ MODO CLASE (varios alumnos)
 const NETKEY = 'imperio_clase_v1';
-const NET = { snaps: {}, snapAt: 0, slot: 0, on: false, code: '', name: '', pid: '', token: '', players: [], off: 0, err: '', ver: 0, sig: '', prot: 0, done: [], ack: [], raids: [], busy: false, lastRaidAt: 0, defending: false };
+const NET = { lastSyncAt: 0, fastUntil: 0, snaps: {}, snapAt: 0, slot: 0, on: false, code: '', name: '', pid: '', token: '', players: [], off: 0, err: '', ver: 0, sig: '', prot: 0, done: [], ack: [], raids: [], busy: false, lastRaidAt: 0, defending: false };
 const NET_OK = location.protocol.indexOf('http') === 0;
 function netLoad() { try { return JSON.parse(localStorage.getItem(NETKEY) || 'null'); } catch (e) { return null; } }
 function netSaveLogin() { try { localStorage.setItem(NETKEY, JSON.stringify({ code: NET.code, name: NET.name, pid: NET.pid, token: NET.token })); } catch (e) {} }
@@ -1584,7 +1584,7 @@ function startExpedition(targetPid) {
       closeModal();
       if (!res.passed) { toast('La expedición se pierde en la niebla. Repasa y vuelve a intentarlo (no pierdes recursos).', 'danger'); return; }
       if (!C.canAfford(S, cost)) { toast('Ya no tienes recursos para la expedición.', 'danger'); return; }
-      C.RES.forEach(k => { if (cost[k]) S.res[k] -= cost[k]; }); S.explored.push(tgt.pid); save(); sfx('tech');
+      C.RES.forEach(k => { if (cost[k]) S.res[k] -= cost[k]; }); S.explored.push(tgt.pid); save(); sfx('tech'); NET.snapAt = Date.now();
       const o = cellOrigin(tgt.slot); toast('🧭 ¡Has descubierto el territorio de ' + tgt.name + '!', 'good'); centerWorld(o.x + C.MAP_W / 2, o.y + C.MAP_H / 2); netWorldFetch(); hud(true);
     } });
 }
@@ -1592,6 +1592,7 @@ function netPub() {
   const res = {}; C.RES.forEach(k => res[k] = Math.floor(S.res[k]));
   return { score: S.score, age: S.age, mastered: quiz.stats().mastered, pop: C.popUsed(S), streak: S.streak, prot: NET.prot, res, b: S.buildings.slice(0, 80).map(b => [Math.max(0, BT.indexOf(b.type)), b.x, b.y, b.done ? 1 : 0]) };
 }
+function netFast(ms) { NET.fastUntil = Math.max(NET.fastUntil, Date.now() + (ms || 60000)); }
 function markDone(id) {
   if (!NET.done.includes(id)) { NET.done.push(id); if (NET.done.length > 300) NET.done.shift(); try { localStorage.setItem(doneKey(), JSON.stringify(NET.done)); } catch (e) {} }
   if (!NET.ack.includes(id)) NET.ack.push(id);
@@ -1608,12 +1609,12 @@ function netHandle(m) {
     const t = addRes(m.loot);
     sfx('loot'); toast(m.defended ? '⚔️ ' + m.fromName + ' resistió con su defensa. Botín reducido: ' + (t || 'nada') : '⚔️ ¡Saqueo a ' + m.fromName + ' completado! Botín: ' + (t || 'nada'), m.defended ? '' : 'good'); markDone(m.id); save();
   }
-  else if (m.type === 'raid') { if (!NET.raids.find(r => r.id === m.id)) NET.raids.push(m); }
+  else if (m.type === 'raid') { netFast(90000); if (!NET.raids.find(r => r.id === m.id)) NET.raids.push(m); }
   else markDone(m.id);
 }
 async function netSync() {
   if (!NET.on || NET.busy || !S || !NET_OK) return;
-  NET.busy = true; const ack = NET.ack.slice(0, 50);
+  NET.busy = true; NET.lastSyncAt = Date.now(); const ack = NET.ack.slice(0, 50);
   const r = await api('sync', Object.assign(auth(), { pub: netPub(), ack }));
   NET.busy = false;
   if (!r.ok) {
@@ -1623,7 +1624,7 @@ async function netSync() {
   NET.err = ''; NET.off = r.now - Date.now(); NET.ack = NET.ack.filter(x => !ack.includes(x));
   const sig = JSON.stringify(r.players.map(p => [p.pid, p.score, p.age, p.mastered, p.pop, p.online, p.prot > r.now ? 1 : 0]));
   NET.players = r.players; if (sig !== NET.sig) { NET.sig = sig; NET.ver++; worldBounds(); }
-  if (Date.now() - NET.snapAt > 9000) { NET.snapAt = Date.now(); netWorldFetch(); }
+  if (Date.now() - NET.snapAt > 30000) { NET.snapAt = Date.now(); netWorldFetch(); }
   (r.inbox || []).forEach(netHandle);
 }
 const modalOpen = () => $('modal').style.display === 'flex';
@@ -1657,7 +1658,7 @@ function startRaid(p) {
       closeModal();
       if (!res.passed) { toast('Prueba no superada: el ataque no se lanza.', 'danger'); return; }
       const r = await api('send', Object.assign(auth(), { msg: { type: 'raid', to: p.pid } }));
-      if (r.ok) { NET.lastRaidAt = Date.now(); sfx('alarm'); toast('⚔️ Ataque lanzado contra ' + p.name + '. Tiene 45 s para defenderse; el botín llegará solo.', 'good'); } else toast(r.error || 'No se pudo atacar.', 'danger');
+      if (r.ok) { NET.lastRaidAt = Date.now(); netFast(90000); sfx('alarm'); toast('⚔️ Ataque lanzado contra ' + p.name + '. Tiene 60 s para defenderse; el botín llegará solo.', 'good'); } else toast(r.error || 'No se pudo atacar.', 'danger');
     } });
 }
 function startGift(p) {
@@ -1676,7 +1677,7 @@ function startGift(p) {
         closeModal();
         if (!rr.passed) { toast('Respuesta incorrecta: no se entrega nada.', 'danger'); return; }
         const r = await api('send', Object.assign(auth(), { msg: { type: 'gift', to: p.pid, res } }));
-        if (r.ok) { C.RES.forEach(k => { S.res[k] = Math.max(0, S.res[k] - res[k]); }); hud(true); save(); toast('🎁 Entregado a ' + p.name + '.', 'good'); } else toast(r.error || 'No se pudo entregar.', 'danger');
+        if (r.ok) { netFast(30000); C.RES.forEach(k => { S.res[k] = Math.max(0, S.res[k] - res[k]); }); hud(true); save(); toast('🎁 Entregado a ' + p.name + '.', 'good'); } else toast(r.error || 'No se pudo entregar.', 'danger');
       } });
   };
 }
@@ -1730,6 +1731,7 @@ function netLeave() {
   NET.on = false; try { localStorage.removeItem(NETKEY); } catch (e) {} SAVE_KEY = 'imperio_elementos_v1'; S = null; netTab(); closeSheet(); showTitle();
 }
 function sheetClass(sh) {
+  netFast(15000);
   const now = netSrvNow(), pl = NET.players, me = pl.findIndex(p => p.pid === NET.pid);
   let html = '<h3>🏫 Clase ' + esc(NET.code) + ' · ' + pl.filter(p => p.online).length + ' conectados</h3>';
   if (NET.err) html += '<div class="fb" style="border:1px solid var(--bad)">⚠️ ' + esc(NET.err) + ' — reintentando…</div>';
@@ -1754,13 +1756,14 @@ async function netSaveRemote(ka) {
   const data = C.serialize(S, QMEM); lastRemote = Date.now();
   try { await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: !!ka && data.length < 60000, body: JSON.stringify(Object.assign({ op: 'save', data }, auth())) }); } catch (e) {}
 }
-setInterval(() => { if (Date.now() - lastRemote > 45000) netSaveRemote(false); }, 5000);
+setInterval(() => { if (Date.now() - lastRemote > 90000) netSaveRemote(false); }, 5000);
 window.addEventListener('pagehide', () => netSaveRemote(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) netSaveRemote(true); });
 // ---- mapa del mundo: cada jugador tiene su territorio, oculto por la niebla para los demás
 function spiral(k) { if (k === 0) return [0, 0]; let x = 0, y = 0, dx = 1, dy = 0, seg = 1, left = 1, turns = 0; for (let i = 0; i < k; i++) { x += dx; y += dy; if (--left === 0) { [dx, dy] = [-dy, dx]; turns++; if (turns % 2 === 0) seg++; left = seg; } } return [x, y]; }
 let worldSel = null;
 function showWorld() {
+  netFast(15000);
   const pl = NET.players.slice(), pos = {}; let minx = 0, maxx = 0, miny = 0, maxy = 0;
   pl.forEach(p => { const [x, y] = spiral(p.slot | 0); pos[x + ',' + y] = p; minx = Math.min(minx, x); maxx = Math.max(maxx, x); miny = Math.min(miny, y); maxy = Math.max(maxy, y); });
   minx--; maxx++; miny--; maxy++;
@@ -1779,7 +1782,8 @@ function showWorld() {
   $('mbox').querySelectorAll('[data-w]').forEach(el => el.onclick = () => { worldSel = el.dataset.w === NET.pid ? null : el.dataset.w; showWorld(); });
   if (sel) { if ($('w-atk')) $('w-atk').onclick = () => { worldSel = null; closeModal(); startRaid(sel); }; if ($('w-go')) $('w-go').onclick = () => { const o = cellOrigin(sel.slot); worldSel = null; closeModal(); centerWorld(o.x + C.MAP_W / 2, o.y + C.MAP_H / 2); }; if ($('w-exp')) $('w-exp').onclick = () => { const t = sel.pid; worldSel = null; closeModal(); startExpedition(t); }; $('w-gift').onclick = () => { worldSel = null; startGift(sel); }; }
 }
-setInterval(netSync, 5000); setInterval(netPump, 1000);
+// Frecuencia adaptativa: reposo cada 12 s; ritmo rápido (3,5 s) solo mientras hay un ataque/regalo en curso o se mira la pestaña de clase
+setInterval(() => { if (NET.on && Date.now() - NET.lastSyncAt >= (Date.now() < NET.fastUntil ? 3500 : 12000)) netSync(); }, 1000); setInterval(netPump, 1000);
 window.__net = { NET, netSync, netPump, netSaveRemote, spiral, netWorldFetch, worldIslands };
 
 // ------------------------------------------------------------ PANTALLA DE INICIO (fondo animado de elementos químicos)

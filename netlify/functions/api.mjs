@@ -3,10 +3,10 @@
 // como mensajes con clave única en la bandeja de entrada del destinatario, y es el destinatario quien aplica los cambios a sus recursos.
 export const config = { path: "/api" };
 
-const ONLINE_MS = 25000;
-const MAX_PLAYERS = 60;
+const ONLINE_MS = 40000;
+const MAX_PLAYERS = 10;
 const RES = ["food", "wood", "stone", "gold"];
-const RAID_COOLDOWN = 60000, RAID_DEADLINE = 45000, PROTECT_MS = 150000, RAID_STALE = 10 * 60000;
+const RAID_COOLDOWN = 60000, RAID_DEADLINE = 60000, PROTECT_MS = 150000, RAID_STALE = 10 * 60000;
 const GIFT_MAX = 150, GIFT_PER_MIN = 4, LOOT_MAX = 400;
 
 let _store = null;
@@ -70,7 +70,7 @@ async function op_join(s, b) {
     if (pin && same.pinHash && same.pinHash === await pinHash(code, name, pin)) return json({ ok: true, pid: same.pid, token: same.token, slot: same.slot | 0, resumed: true });
     return bad(pin ? "Ese nombre ya existe en esta clase y el PIN no coincide." : "Ese nombre ya existe en esta clase. Para continuar en otro dispositivo escribe tu PIN de 4 cifras.");
   }
-  if (all.length >= MAX_PLAYERS) return bad("La clase está llena.");
+  if (all.length >= MAX_PLAYERS) return bad("La clase está llena (máximo " + MAX_PLAYERS + " jugadores).");
   if (!pin) return bad("Elige un PIN de 4 cifras: te permitirá recuperar tu ciudad otro día o en otro dispositivo.");
   const pid = uid().slice(0, 12), token = uid(), slot = all.reduce((m, p) => Math.max(m, (p.slot | 0) + 1), 0);
   await s.setJSON(K.p(code, pid), { pid, token, name, slot, pinHash: await pinHash(code, name, pin), seen: now(), created: now(), pub: cleanPub({ age: 1 }) });
