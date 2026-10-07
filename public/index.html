@@ -1953,7 +1953,7 @@ function fitBadge() {
     const r = f.getBoundingClientRect(), st = getComputedStyle(f);
     if (st.display !== 'none' && r.height > 0 && r.top > window.innerHeight * 0.5) {
       h = Math.ceil(window.innerHeight - r.top);
-      try { const w = f.contentDocument.querySelector('.nl-wrap'); if (w) { const wr = w.getBoundingClientRect(); if (wr.height > 0) h = Math.ceil(window.innerHeight - (r.top + wr.top)) + 6; } } catch (e) {}
+      try { const w = f.contentDocument.querySelector('.nl-wrap'); if (w) { const wr = w.getBoundingClientRect(); if (wr.height > 0) h = Math.ceil(window.innerHeight - (r.top + wr.top)) - 2; } } catch (e) {}
     }
   }
   const cur = parseInt(document.documentElement.style.getPropertyValue('--nlb') || '0', 10) || 0;
