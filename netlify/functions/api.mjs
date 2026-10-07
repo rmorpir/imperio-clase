@@ -24,6 +24,11 @@ const uid = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() 
 function cleanCode(c) { c = String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); return c.length >= 3 && c.length <= 10 ? c : null; }
 function cleanName(n) { n = String(n || "").replace(/[\u0000-\u001f<>&"`]/g, "").trim().replace(/\s+/g, " "); return n.length >= 2 && n.length <= 16 ? n : null; }
 const num = (v, lo, hi) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo; };
+async function pinHash(code, name, pin) {
+  const d = new TextEncoder().encode("elementia|" + code + "|" + name.toLowerCase() + "|" + pin);
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", d))).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+const cleanPin = p => { p = String(p || "").replace(/\D/g, ""); return p.length === 4 ? p : null; };
 function cleanPub(p) {
   p = p || {}; const res = {};
   for (const k of RES) res[k] = num(p.res && p.res[k], 0, 1e6);
@@ -31,7 +36,7 @@ function cleanPub(p) {
 }
 const K = {
   p: (c, id) => `r/${c}/p/${id}`, pl: c => `r/${c}/p/`, i: (c, id, m) => `r/${c}/i/${id}/${m}`, il: (c, id) => `r/${c}/i/${id}/`,
-  raid: (c, v, r) => `r/${c}/raid/${v}/${r}`, raidl: (c, v) => `r/${c}/raid/${v}/`, prot: (c, id) => `r/${c}/prot/${id}`, cool: (c, id) => `r/${c}/cool/${id}`, gift: (c, id) => `r/${c}/gift/${id}`,
+  raid: (c, v, r) => `r/${c}/raid/${v}/${r}`, raidl: (c, v) => `r/${c}/raid/${v}/`, prot: (c, id) => `r/${c}/prot/${id}`, cool: (c, id) => `r/${c}/cool/${id}`, gift: (c, id) => `r/${c}/gift/${id}`, save: (c, id) => `r/${c}/save/${id}`,
 };
 async function getJ(s, k) { return await s.get(k, { type: "json" }); }
 async function listKeys(s, prefix) { const r = await s.list({ prefix }); return (r.blobs || []).map(b => b.key); }
@@ -45,7 +50,7 @@ async function roster(s, code, force) {
   const t = now(), c = rosterCache[code];
   if (!force && c && t - c.t < 2500) return c.v;
   const keys = await listKeys(s, K.pl(code));
-  const ps = (await Promise.all(keys.map(k => getJ(s, k)))).filter(Boolean).map(p => ({ pid: p.pid, name: p.name, seen: p.seen, ...p.pub, online: t - p.seen < ONLINE_MS }));
+  const ps = (await Promise.all(keys.map(k => getJ(s, k)))).filter(Boolean).map(p => ({ pid: p.pid, name: p.name, seen: p.seen, ...p.pub, slot: p.slot | 0, online: t - p.seen < ONLINE_MS }));
   ps.sort((a, b) => b.score - a.score);
   rosterCache[code] = { t, v: ps };
   return ps;
@@ -53,22 +58,23 @@ async function roster(s, code, force) {
 const dropCache = code => { delete rosterCache[code]; };
 
 async function op_join(s, b) {
-  const code = cleanCode(b.code), name = cleanName(b.name);
+  const code = cleanCode(b.code), name = cleanName(b.name), pin = cleanPin(b.pin);
   if (!code) return bad("Código de clase no válido (3 a 10 letras o números).");
   if (!name) return bad("Escribe un nombre de 2 a 16 caracteres.");
   const keys = await listKeys(s, K.pl(code));
   const all = (await Promise.all(keys.map(k => getJ(s, k)))).filter(Boolean);
   const same = all.find(p => p.name.toLowerCase() === name.toLowerCase());
   if (same) {
-    if (b.token && same.token === b.token) return json({ ok: true, pid: same.pid, token: same.token, resumed: true });
-    if (now() - same.seen < ONLINE_MS) return bad("Ese nombre ya está en uso en esta clase.");
-    return bad("Ese nombre ya existe en esta clase. Usa el mismo dispositivo para continuar o elige otro nombre.");
+    if (b.token && same.token === b.token) return json({ ok: true, pid: same.pid, token: same.token, slot: same.slot | 0, resumed: true });
+    if (pin && same.pinHash && same.pinHash === await pinHash(code, name, pin)) return json({ ok: true, pid: same.pid, token: same.token, slot: same.slot | 0, resumed: true });
+    return bad(pin ? "Ese nombre ya existe en esta clase y el PIN no coincide." : "Ese nombre ya existe en esta clase. Para continuar en otro dispositivo escribe tu PIN de 4 cifras.");
   }
   if (all.length >= MAX_PLAYERS) return bad("La clase está llena.");
-  const pid = uid().slice(0, 12), token = uid();
-  await s.setJSON(K.p(code, pid), { pid, token, name, seen: now(), created: now(), pub: cleanPub({ age: 1 }) });
+  if (!pin) return bad("Elige un PIN de 4 cifras: te permitirá recuperar tu ciudad otro día o en otro dispositivo.");
+  const pid = uid().slice(0, 12), token = uid(), slot = all.reduce((m, p) => Math.max(m, (p.slot | 0) + 1), 0);
+  await s.setJSON(K.p(code, pid), { pid, token, name, slot, pinHash: await pinHash(code, name, pin), seen: now(), created: now(), pub: cleanPub({ age: 1 }) });
   dropCache(code);
-  return json({ ok: true, pid, token });
+  return json({ ok: true, pid, token, slot });
 }
 async function op_sync(s, b) {
   const code = cleanCode(b.code); const me = await auth(s, code, b.pid, b.token);
@@ -135,6 +141,20 @@ async function op_send(s, b) {
   }
   return bad("Mensaje desconocido.");
 }
+const SAVE_MAX = 900000;
+async function op_save(s, b) {
+  const code = cleanCode(b.code); const me = await auth(s, code, b.pid, b.token);
+  if (!me) return bad("Sesión no válida. Vuelve a unirte a la clase.", 401);
+  if (typeof b.data !== "string" || b.data.length < 10 || b.data.length > SAVE_MAX) return bad("Partida demasiado grande o vacía.");
+  await s.setJSON(K.save(code, me.pid), { at: now(), data: b.data });
+  return json({ ok: true, at: now() });
+}
+async function op_load(s, b) {
+  const code = cleanCode(b.code); const me = await auth(s, code, b.pid, b.token);
+  if (!me) return bad("Sesión no válida. Vuelve a unirte a la clase.", 401);
+  const v = await getJ(s, K.save(code, me.pid));
+  return json({ ok: true, at: v ? v.at : 0, data: v ? v.data : null });
+}
 async function op_roster(s, b) {
   const code = cleanCode(b.code); if (!code) return bad("Código no válido.");
   return json({ ok: true, now: now(), players: await roster(s, code, true) });
@@ -148,6 +168,8 @@ export default async (req) => {
     if (b.op === "join") return await op_join(s, b);
     if (b.op === "sync") return await op_sync(s, b);
     if (b.op === "send") return await op_send(s, b);
+    if (b.op === "save") return await op_save(s, b);
+    if (b.op === "load") return await op_load(s, b);
     if (b.op === "roster") return await op_roster(s, b);
     return bad("Operación desconocida.");
   } catch (e) { return json({ ok: false, error: "Error del servidor." }, 500); }
