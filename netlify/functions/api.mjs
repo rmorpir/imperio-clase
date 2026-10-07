@@ -32,7 +32,8 @@ const cleanPin = p => { p = String(p || "").replace(/\D/g, ""); return p.length 
 function cleanPub(p) {
   p = p || {}; const res = {};
   for (const k of RES) res[k] = num(p.res && p.res[k], 0, 1e6);
-  return { score: num(p.score, 0, 1e7), age: num(p.age, 1, 6), mastered: num(p.mastered, 0, 1e5), pop: num(p.pop, 0, 200), streak: num(p.streak, 0, 1e4), prot: num(p.prot, 0, 4e12), res };
+  const b = (Array.isArray(p.b) ? p.b : []).slice(0, 80).map(a => Array.isArray(a) ? [num(a[0], 0, 15), num(a[1], 0, 60), num(a[2], 0, 60), a[3] ? 1 : 0] : null).filter(Boolean);
+  return { b, score: num(p.score, 0, 1e7), age: num(p.age, 1, 6), mastered: num(p.mastered, 0, 1e5), pop: num(p.pop, 0, 200), streak: num(p.streak, 0, 1e4), prot: num(p.prot, 0, 4e12), res };
 }
 const K = {
   p: (c, id) => `r/${c}/p/${id}`, pl: c => `r/${c}/p/`, i: (c, id, m) => `r/${c}/i/${id}/${m}`, il: (c, id) => `r/${c}/i/${id}/`,
@@ -50,7 +51,7 @@ async function roster(s, code, force) {
   const t = now(), c = rosterCache[code];
   if (!force && c && t - c.t < 2500) return c.v;
   const keys = await listKeys(s, K.pl(code));
-  const ps = (await Promise.all(keys.map(k => getJ(s, k)))).filter(Boolean).map(p => ({ pid: p.pid, name: p.name, seen: p.seen, ...p.pub, slot: p.slot | 0, online: t - p.seen < ONLINE_MS }));
+  const ps = (await Promise.all(keys.map(k => getJ(s, k)))).filter(Boolean).map(p => ({ pid: p.pid, name: p.name, seen: p.seen, ...p.pub, b: undefined, slot: p.slot | 0, online: t - p.seen < ONLINE_MS }));
   ps.sort((a, b) => b.score - a.score);
   rosterCache[code] = { t, v: ps };
   return ps;
@@ -155,6 +156,14 @@ async function op_load(s, b) {
   const v = await getJ(s, K.save(code, me.pid));
   return json({ ok: true, at: v ? v.at : 0, data: v ? v.data : null });
 }
+async function op_world(s, b) {
+  const code = cleanCode(b.code); const me = await auth(s, code, b.pid, b.token);
+  if (!me) return bad("Sesión no válida. Vuelve a unirte a la clase.", 401);
+  const ids = (Array.isArray(b.ids) ? b.ids : []).slice(0, 14).map(x => String(x).slice(0, 60));
+  const out = [];
+  for (const id of ids) { const p = await getJ(s, K.p(code, id)); if (p) out.push({ pid: p.pid, b: (p.pub && p.pub.b) || [] }); }
+  return json({ ok: true, islands: out });
+}
 async function op_roster(s, b) {
   const code = cleanCode(b.code); if (!code) return bad("Código no válido.");
   return json({ ok: true, now: now(), players: await roster(s, code, true) });
@@ -168,6 +177,7 @@ export default async (req) => {
     if (b.op === "join") return await op_join(s, b);
     if (b.op === "sync") return await op_sync(s, b);
     if (b.op === "send") return await op_send(s, b);
+    if (b.op === "world") return await op_world(s, b);
     if (b.op === "save") return await op_save(s, b);
     if (b.op === "load") return await op_load(s, b);
     if (b.op === "roster") return await op_roster(s, b);

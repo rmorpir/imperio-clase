@@ -1,6 +1,6 @@
 {
- "name": "Elementia",
- "short_name": "Elementia",
+ "name": "Quimicraft",
+ "short_name": "Quimicraft",
  "description": "Juego de estrategia educativo de química (formulación inorgánica y orgánica).",
  "start_url": "./index.html",
  "scope": "./",

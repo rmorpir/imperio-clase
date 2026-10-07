@@ -1,8 +1,8 @@
-# Elementia — modo clase (varios alumnos)
+# Quimicraft — modo clase (varios alumnos)
 
 ## Qué hace
 - Cada alumno entra con **nombre + código de clase + PIN de 4 cifras** (sin cuentas ni correo). El PIN sirve para recuperar la ciudad otro día o desde otro dispositivo.
-- 🗺️ **Mapa del mundo**: cada jugador tiene su territorio; los demás lo ven tapado por la niebla (solo se ve nombre, puntos y si está conectado). El mundo crece con el número de jugadores. Cada ciudad se calcula en el dispositivo de su dueño, por eso nadie ve la ciudad del otro.
+- 🗺️ **Un único mapa compartido (archipiélago)**: cada jugador empieza en su propia isla; las demás están tapadas por la niebla. Con una 🧭 *expedición* (recursos + 2 preguntas) descubres un territorio vecino: lo ves en el mapa con sus edificios (actualizados cada ~10 s) y solo entonces puedes atacarlo. El mundo crece con el número de jugadores. Cada ciudad se simula en el dispositivo de su dueño (por eso los recursos de la isla de otro no se pueden recoger ni se ven sus aldeanos); lo compartido son el paisaje, las islas descubiertas, el ranking, los regalos y los ataques.
 - 💾 **Guardado**: la ciudad se guarda en el dispositivo y también en el servidor (cada ~45 s y al cerrar). Al volver con nombre + PIN se recupera la partida más reciente.
 - 📝 **Obras con examen**: construir exige recursos y aprobar preguntas; más importante el edificio, más preguntas y más difíciles.
 - 🎵 Música y efectos sintetizados en el navegador (se pueden desactivar en ⚙️ Más).
@@ -29,3 +29,5 @@ No funciona abriendo el .html suelto: necesita la URL pública.
 - Nombres repetidos en una clase no se permiten; para recuperar tu jugador usa el mismo dispositivo.
 - El PIN de 4 cifras es una protección ligera (evita que un compañero use tu nombre por descuido), no una contraseña segura.
 - Los datos de clase son nombres de pila, puntos y la partida guardada, sin cuentas ni correo. Aun así, usa apodos si el centro lo prefiere.
+
+- Consumo: cada alumno conectado hace una llamada a la función cada ~5 s. Una clase de 30 alumnos durante 1 hora son ~22.000 llamadas; si usas el plan gratuito de Netlify, vigila el límite mensual en su panel de uso.
