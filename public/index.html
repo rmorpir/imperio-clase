@@ -104,6 +104,8 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px}
 .wc.sel{outline:3px solid var(--accent)}
 .wi{font-size:clamp(18px,6vw,30px);line-height:1}.wn{font-size:clamp(9px,2.6vw,12px);font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ws{font-size:clamp(9px,2.4vw,11px);color:#d6e6e0}
 .wc.known{background:linear-gradient(160deg,#3f8fb0,#2a5f7a);border-color:#9ad8f0;cursor:pointer}
+
+#app,#hero,#modal{bottom:var(--nlb,0px)}
 </style></head>
 <body><div id="app">
 <div id="top"><div id="res" style="display:contents"></div><div class="age" id="age"></div><button id="btn-menu" aria-label="Menú">☰</button></div>
@@ -1835,7 +1837,8 @@ const AUD = (function () {
     const len = ac.sampleRate * 2.6, ir = ac.createBuffer(2, len, ac.sampleRate);
     for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
     verb = ac.createConvolver(); verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.42; verb.connect(vg); vg.connect(master);
-    const dry = ac.createGain(); dry.gain.value = 0.9; mbus.connect(dry); dry.connect(master); mbus.connect(verb);
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.6; const lp2 = ac.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 1500; lp2.Q.value = 0.5;
+    const dry = ac.createGain(); dry.gain.value = 0.95; mbus.connect(lp); lp.connect(lp2); lp2.connect(dry); dry.connect(master); lp2.connect(verb);
     if (want) setMode(want); return ac;
   }
   function tone(f, t, d, type, g, o) {
@@ -1881,19 +1884,20 @@ const AUD = (function () {
   const ROOT = [38, 34, 41, 36, 38, 34, 31, 33];
   const MEL = [[[0, 74, 2], [2, 77, 1], [3, 81, 1]], [[0, 79, 2], [2, 77, 1], [3, 74, 1]], [[0, 77, 1.5], [1.5, 81, 0.5], [2, 84, 2]], [[0, 79, 2], [2, 76, 1], [3, 79, 1]],
     [[0, 74, 1], [1, 77, 1], [2, 81, 2]], [[0, 82, 2], [2, 79, 1], [3, 77, 1]], [[0, 79, 1.5], [1.5, 77, 0.5], [2, 74, 2]], [[0, 73, 2], [2, 76, 1], [3, 81, 1]]];
-  function bar(b, t, bt, m) {            // programa un compás completo (4 tiempos) empezando en t
-    const ch = CH[b], epic = m !== 'calm';
-    ch.forEach(n => { [-9, 9].forEach(c => tone(mtof(n), t, bt * 4 + 0.15, 'sawtooth', epic ? 0.05 : 0.032, { det: c, lp: epic ? 1400 : 700, a: 0.5, r: 0.8, bus: mbus })); });
-    tone(mtof(ROOT[b]), t, bt * 4, 'sine', 0.2, { a: 0.1, r: 0.4, bus: mbus }); tone(mtof(ROOT[b] - 12), t, bt * 4, 'sine', 0.12, { a: 0.1, r: 0.4, bus: mbus });
-    for (let i = 0; i < 8; i++) {          // arpegio de arpa (suave) o cuerdas picadas (épico)
-      const n = ch[[0, 1, 2, 1, 2, 1, 2, 1][i] % 3] + 12 * (i % 4 === 3 ? 2 : 1);
-      if (!epic) tone(mtof(n - 12), t + i * bt / 2, bt * 1.6, 'triangle', 0.085, { lp: 1100, bus: mbus, r: 0.7, a: 0.02 });
-      else tone(mtof(ch[i % 3]), t + i * bt / 2, bt * 0.45, 'sawtooth', 0.05, { lp: 1300, bus: mbus, a: 0.01 });
+  function bar(b, t, bt, m) {            // programa un compás completo (4 tiempos) empezando en t — registro grave y cálido
+    const ch = CH[b], epic = m !== 'calm', dur = bt * 4;
+    ch.forEach(n => { [-8, 8].forEach(c => tone(mtof(n - 12), t, dur + 0.2, 'sawtooth', epic ? 0.07 : 0.05, { det: c, lp: epic ? 700 : 450, a: 0.6, r: 0.9, bus: mbus })); });
+    const r = ROOT[b];                      // bajo con armónicos (octava y quinta) para dar cuerpo
+    tone(mtof(r), t, dur, 'sine', 0.3, { a: 0.1, r: 0.5, bus: mbus }); tone(mtof(r + 12), t, dur, 'sine', 0.12, { a: 0.12, r: 0.5, bus: mbus }); tone(mtof(r + 19), t, dur, 'sine', 0.05, { a: 0.2, r: 0.5, bus: mbus });
+    for (let i = 0; i < 8; i++) {          // arpegio grave (arpa/cuerdas) o cuerdas picadas (épico)
+      const n = ch[[0, 1, 2, 1, 2, 1, 2, 1][i] % 3];
+      if (!epic) tone(mtof(n), t + i * bt / 2, bt * 1.7, 'triangle', 0.1, { lp: 600, bus: mbus, r: 0.8, a: 0.02 });
+      else tone(mtof(n - 12), t + i * bt / 2, bt * 0.5, 'sawtooth', 0.07, { lp: 600, bus: mbus, a: 0.01 });
     }
-    MEL[b].forEach(([beat, n, d]) => {     // melodía: flauta suave o metales heroicos
-      const tt = t + beat * bt, dd = d * bt;
-      if (!epic) { tone(mtof(n - 12), tt, dd * 0.97, 'sine', 0.17, { a: 0.09, r: dd * 0.5, bus: mbus }); tone(mtof(n - 12), tt, dd * 0.97, 'triangle', 0.05, { lp: 1400, a: 0.1, r: dd * 0.5, bus: mbus, det: 4 }); tone(mtof(n - 24), tt, dd * 0.97, 'sine', 0.05, { a: 0.1, bus: mbus }); }
-      else { [-6, 6].forEach(c => tone(mtof(n - 12), tt, dd * 0.98, 'sawtooth', 0.07, { det: c, lp: 800, lpTo: 1900, a: 0.06, r: dd * 0.35, bus: mbus })); tone(mtof(n - 24), tt, dd * 0.98, 'sawtooth', 0.06, { lp: 700, a: 0.06, bus: mbus }); }
+    MEL[b].forEach(([beat, n, d]) => {     // melodía: violonchelo suave o metales graves
+      const tt = t + beat * bt, dd = d * bt, m0 = n - 24;
+      if (!epic) { tone(mtof(m0), tt, dd * 0.97, 'sine', 0.2, { a: 0.09, r: dd * 0.5, bus: mbus }); tone(mtof(m0), tt, dd * 0.97, 'sawtooth', 0.045, { lp: 520, a: 0.12, r: dd * 0.5, bus: mbus, det: 5 }); tone(mtof(m0 + 12), tt, dd * 0.97, 'sine', 0.06, { a: 0.12, bus: mbus }); tone(mtof(m0 + 7), tt, dd * 0.97, 'sine', 0.025, { a: 0.14, bus: mbus }); }
+      else { [-6, 6].forEach(c => tone(mtof(m0), tt, dd * 0.98, 'sawtooth', 0.085, { det: c, lp: 600, lpTo: 1200, a: 0.07, r: dd * 0.35, bus: mbus })); tone(mtof(m0 - 12), tt, dd * 0.98, 'sine', 0.12, { a: 0.07, bus: mbus }); tone(mtof(m0 + 12), tt, dd * 0.98, 'sine', 0.05, { a: 0.1, bus: mbus }); }
     });
     if (m === 'battle') { for (let i = 0; i < 8; i++) drum(t + i * bt / 2, i % 2 ? 0.25 : 0.5, i % 4 === 0); }
     else if (m === 'epic') { drum(t, 0.5, true); drum(t + 2 * bt, 0.4, true); drum(t + 3.5 * bt, 0.25); }
@@ -1940,6 +1944,14 @@ function frame(now) {
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 window.addEventListener('pagehide', save);
 window.__game = { get S() { return S; }, get quiz() { return quiz; }, C, startGame, runQuiz, openTab, cam: () => cam };
+// El hosting puede superponer una insignia ("Powered by Netlify") en la parte inferior: reservamos su altura para que no tape el juego.
+function fitBadge() {
+  const f = document.getElementById('nl-badge-frame'); let h = 0;
+  if (f) { const r = f.getBoundingClientRect(); const st = getComputedStyle(f); if (st.display !== 'none' && r.height > 0 && r.top > window.innerHeight * 0.5) h = Math.ceil(window.innerHeight - r.top); }
+  const cur = parseInt(document.documentElement.style.getPropertyValue('--nlb') || '0', 10) || 0;
+  if (h !== cur) { document.documentElement.style.setProperty('--nlb', h + 'px'); resize(); }
+}
+setInterval(fitBadge, 700);
 resize();
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) navigator.serviceWorker.register('service-worker.js').catch(() => {});
 showTitle(); setInterval(() => { if (!S) { AUD.setMode('epic'); return; } AUD.setMode(S.won || $('hero').style.display === 'flex' ? 'epic' : (S.raiders.length || NET.raids.length) ? 'battle' : 'calm'); }, 1000); requestAnimationFrame(frame);
